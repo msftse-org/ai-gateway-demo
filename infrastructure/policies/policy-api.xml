@@ -1,0 +1,73 @@
+<!--
+  API-scope policy for the AI Gateway (applied to the imported Foundry / LLM API).
+  Rendered by Terraform via templatefile(); template tokens are substituted at apply time.
+
+  Order of capabilities (inbound):
+    1. Content safety  - screen the prompt before it reaches a model.
+    2. Semantic cache  - return a cached answer for semantically-similar prompts.
+    3. Backend routing - send to the load-balanced Foundry pool using managed identity.
+    4. Token metrics   - emit per-call token usage to Application Insights.
+  Outbound:
+    - Store the response in the semantic cache.
+    - Echo correlation headers so the test suite can find this call in the dashboard.
+-->
+<policies>
+    <inbound>
+        <base />
+        <!-- 1. Content safety: block unsafe prompts (Hate / Violence at/above threshold). -->
+        <llm-content-safety backend-id="content-safety-backend" shield-prompt="true">
+            <categories output-type="EightSeverityLevels">
+                <category name="Hate" threshold="${content_safety_threshold}" />
+                <category name="Violence" threshold="${content_safety_threshold}" />
+                <category name="SelfHarm" threshold="${content_safety_threshold}" />
+                <category name="Sexual" threshold="${content_safety_threshold}" />
+            </categories>
+        </llm-content-safety>
+        <!-- 2. Semantic cache lookup: vary by subscription so teams don't share cached answers.
+             RediSearch treats hyphens as negation, so replace them in the vary-by key. -->
+        <llm-semantic-cache-lookup score-threshold="${semantic_cache_score_threshold}" embeddings-backend-id="embeddings-backend" embeddings-backend-auth="system-assigned">
+            <vary-by>@(context.Subscription.Id.Replace("-", "_"))</vary-by>
+            <vary-by>@(context.Request.MatchedParameters.GetValueOrDefault("deployment-id", "unknown").Replace("-", "_").Replace(".", "_"))</vary-by>
+        </llm-semantic-cache-lookup>
+        <!-- 3. Route to the load-balanced Foundry backend pool and authenticate with managed identity. -->
+        <set-backend-service backend-id="foundry-pool" />
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com" />
+        <!-- 4. Emit token-consumption metrics with the dimensions the dashboard filters on (max 5 custom). -->
+        <llm-emit-token-metric namespace="ai-gateway">
+            <dimension name="API ID" />
+            <dimension name="Subscription ID" />
+            <dimension name="Product" value="@(context.Product?.Id ?? "none")" />
+            <dimension name="User ID" value="@(context.Request.Headers.GetValueOrDefault("x-user-id", "anonymous"))" />
+            <dimension name="Test Run ID" value="@(context.Request.Headers.GetValueOrDefault("x-test-run-id", "none"))" />
+        </llm-emit-token-metric>
+    </inbound>
+    <backend>
+        <!-- Resiliency: retry the pool on throttling / transient backend errors (circuit breaker shifts hosts). -->
+        <retry condition="@(context.Response != null && (context.Response.StatusCode == 429 || context.Response.StatusCode >= 500))" count="2" interval="0" first-fast-retry="true">
+            <forward-request buffer-request-body="true" />
+        </retry>
+    </backend>
+    <outbound>
+        <base />
+        <!-- Store successful responses for the semantic cache (2 minute TTL for the demo). -->
+        <llm-semantic-cache-store duration="120" />
+        <!-- Echo correlation info so the test suite can assert behaviour and locate the call in the dashboard. -->
+        <set-header name="x-test-run-id" exists-action="override">
+            <value>@(context.Request.Headers.GetValueOrDefault("x-test-run-id", "none"))</value>
+        </set-header>
+        <set-header name="x-correlation-id" exists-action="override">
+            <value>@(context.RequestId.ToString())</value>
+        </set-header>
+        <!-- set-backend-service rewrites context.Request.Url to the selected pool member, so in outbound
+             this host identifies which Foundry backend actually served the call (load-balance demo). -->
+        <set-header name="x-backend-host" exists-action="override">
+            <value>@(context.Request.Url.Host)</value>
+        </set-header>
+    </outbound>
+    <on-error>
+        <base />
+        <set-header name="x-error-source" exists-action="override">
+            <value>ai-gateway</value>
+        </set-header>
+    </on-error>
+</policies>

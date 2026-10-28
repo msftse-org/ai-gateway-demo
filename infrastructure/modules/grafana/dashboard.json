@@ -1,0 +1,1145 @@
+{
+  "uid": "aigw-ai-gateway",
+  "title": "AI Gateway \u2014 APIM + Foundry Dashboard",
+  "tags": [
+    "apim",
+    "ai-gateway",
+    "foundry"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "TestRunId",
+        "label": "Test Run ID",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0
+      },
+      {
+        "name": "Product",
+        "label": "Product (* = all)",
+        "type": "textbox",
+        "query": "*",
+        "current": {
+          "text": "*",
+          "value": "*"
+        },
+        "hide": 0
+      },
+      {
+        "name": "UserId",
+        "label": "User ID",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0
+      },
+      {
+        "name": "PriceInputPer1k",
+        "label": "Set price / 1K input (USD)",
+        "type": "textbox",
+        "query": "unset",
+        "current": {
+          "text": "unset",
+          "value": "unset"
+        },
+        "hide": 0
+      },
+      {
+        "name": "PriceOutputPer1k",
+        "label": "Set price / 1K output (USD)",
+        "type": "textbox",
+        "query": "unset",
+        "current": {
+          "text": "unset",
+          "value": "unset"
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "1 \u00b7 Executive summary",
+      "id": 1,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Token totals",
+      "id": 2,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Tokens$/"
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppMetrics\n| where $__timeFilter(TimeGenerated)\n| where Name in ('Total Tokens','Prompt Tokens','Completion Tokens')\n| extend Product = tostring(Properties['Product']), TestRunId = tostring(Properties['Test Run ID']), UserId = tostring(Properties['User ID'])\n| where (runFilter == '' or TestRunId == runFilter)\n| where ('$Product' == '*' or Product == '$Product')\n| where ('$UserId' == '' or UserId == '$UserId')\n| summarize Tokens = sum(Sum) by Name\n| project Name, Tokens"
+          }
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Request health",
+      "id": 3,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 10,
+        "x": 8,
+        "y": 1
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Error %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 5
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "P95 latency (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppRequests\n| where $__timeFilter(TimeGenerated)\n| extend TestRunId = tostring(Properties['Request-x-test-run-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize Total = count(), Errors = countif(Success == false), Throttled = countif(ResultCode == '429'), Blocked = countif(ResultCode == '403'), P95Latency = percentile(DurationMs, 95)\n| extend ErrPct = iff(Total == 0, 0.0, round(100.0 * Errors / Total, 1))\n| project ['Total requests'] = todouble(Total), ['Error %'] = ErrPct, ['Throttled (429)'] = todouble(Throttled), ['Blocked (403)'] = todouble(Blocked), ['P95 latency (ms)'] = round(P95Latency, 0)"
+          }
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Estimated cost (USD)",
+      "id": 4,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Value$/"
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "unit": "currencyUSD",
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nlet priceIn = todouble('$PriceInputPer1k');\nlet priceOut = todouble('$PriceOutputPer1k');\nlet prompt = toscalar(AppMetrics | where $__timeFilter(TimeGenerated) | where Name == 'Prompt Tokens' | extend t = tostring(Properties['Test Run ID']) | where (runFilter == '' or t == runFilter) | summarize sum(Sum));\nlet completion = toscalar(AppMetrics | where $__timeFilter(TimeGenerated) | where Name == 'Completion Tokens' | extend t = tostring(Properties['Test Run ID']) | where (runFilter == '' or t == runFilter) | summarize sum(Sum));\nprint Value = round((coalesce(prompt,0.0)/1000.0)*priceIn + (coalesce(completion,0.0)/1000.0)*priceOut, 4)"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "2 \u00b7 Token consumption",
+      "id": 10,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Total tokens over time, by product",
+      "id": 11,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "time_series",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppMetrics\n| where $__timeFilter(TimeGenerated)\n| where Name == 'Total Tokens'\n| extend Product = tostring(Properties['Product']), TestRunId = tostring(Properties['Test Run ID']), UserId = tostring(Properties['User ID'])\n| where (runFilter == '' or TestRunId == runFilter)\n| where ('$Product' == '*' or Product == '$Product')\n| where ('$UserId' == '' or UserId == '$UserId')\n| summarize Tokens = sum(Sum) by bin(TimeGenerated, 1m), Product\n| order by TimeGenerated asc"
+          }
+        }
+      ]
+    },
+    {
+      "type": "piechart",
+      "title": "Token mix (prompt / completion / cached / reasoning)",
+      "id": 12,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Tokens$/"
+        },
+        "pieType": "donut",
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "values": [
+            "value"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppMetrics\n| where $__timeFilter(TimeGenerated)\n| where Name in ('Prompt Tokens','Completion Tokens','Prompt Cached Tokens','Completion Reasoning Tokens')\n| extend TestRunId = tostring(Properties['Test Run ID'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize Tokens = sum(Sum) by Name\n| project Name, Tokens"
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Tokens by product and subscription",
+      "id": 13,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppMetrics\n| where $__timeFilter(TimeGenerated)\n| where Name == 'Total Tokens'\n| extend Sub = tostring(Properties['Subscription ID']), Product = tostring(Properties['Product'])\n| extend TestRunId = tostring(Properties['Test Run ID'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize Tokens = sum(Sum) by Product, Sub\n| order by Tokens desc"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "3 \u00b7 Cost view",
+      "id": 20,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      }
+    },
+    {
+      "type": "table",
+      "title": "Estimated cost by product (chargeback)",
+      "id": 21,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CostUSD"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-GrYlRd"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nlet priceIn = todouble('$PriceInputPer1k');\nlet priceOut = todouble('$PriceOutputPer1k');\nlet prompt = AppMetrics | where $__timeFilter(TimeGenerated) | where Name == 'Prompt Tokens' | extend Product = tostring(Properties['Product']), t = tostring(Properties['Test Run ID']) | where (runFilter == '' or t == runFilter) | summarize p = sum(Sum) by Product;\nlet completion = AppMetrics | where $__timeFilter(TimeGenerated) | where Name == 'Completion Tokens' | extend Product = tostring(Properties['Product']), t = tostring(Properties['Test Run ID']) | where (runFilter == '' or t == runFilter) | summarize c = sum(Sum) by Product;\nprompt\n| join kind=fullouter completion on Product\n| extend Product = coalesce(Product, Product1)\n| extend CostUSD = round((coalesce(p,0.0)/1000.0)*priceIn + (coalesce(c,0.0)/1000.0)*priceOut, 4)\n| project Product, ['Prompt tokens'] = p, ['Completion tokens'] = c, CostUSD\n| order by CostUSD desc"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "4 \u00b7 Throughput & latency",
+      "id": 30,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency percentiles by operation (ms)",
+      "id": 31,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "time_series",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppRequests\n| where $__timeFilter(TimeGenerated)\n| extend TestRunId = tostring(Properties['Request-x-test-run-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize P50 = percentile(DurationMs, 50), P95 = percentile(DurationMs, 95), P99 = percentile(DurationMs, 99) by bin(TimeGenerated, 1m), OperationName\n| order by TimeGenerated asc"
+          }
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request throughput by result code",
+      "id": 32,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "time_series",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppRequests\n| where $__timeFilter(TimeGenerated)\n| extend TestRunId = tostring(Properties['Request-x-test-run-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize Requests = count() by bin(TimeGenerated, 1m), ResultCode\n| order by TimeGenerated asc"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "5 \u00b7 Errors & throttling",
+      "id": 40,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "type": "table",
+      "title": "Throttling, quota and server errors (429 = rate limit \u00b7 403 = quota/blocked)",
+      "id": 41,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppRequests\n| where $__timeFilter(TimeGenerated)\n| extend TestRunId = tostring(Properties['Request-x-test-run-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| where ResultCode in ('429','403') or toint(ResultCode) >= 500\n| summarize Count = count() by ResultCode, OperationName\n| order by Count desc"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "6 \u00b7 Semantic cache",
+      "id": 50,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "Cache hit ratio (per-request Cache outcome)",
+      "id": 51,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 49
+      },
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Count$/"
+        },
+        "pieType": "pie",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "values": [
+            "value"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppRequests\n| where $__timeFilter(TimeGenerated)\n| extend RunId = tostring(Properties['Request-x-test-run-id']), Cache = tostring(Properties['Cache'])\n| where (runFilter == '' or RunId == runFilter)\n| where OperationName has 'chat'\n| where Cache in ('Hit','Miss')\n| extend Outcome = iff(Cache == 'Hit', 'Served from cache', 'Forwarded to model')\n| summarize Count = count() by Outcome\n| project Outcome, Count"
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Cache effectiveness (hit / miss / ratio)",
+      "id": 52,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 49
+      },
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hit ratio %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppRequests\n| where $__timeFilter(TimeGenerated)\n| extend RunId = tostring(Properties['Request-x-test-run-id']), Cache = tostring(Properties['Cache'])\n| where (runFilter == '' or RunId == runFilter)\n| where OperationName has 'chat'\n| summarize Hits = countif(Cache == 'Hit'), Misses = countif(Cache == 'Miss'), NotCached = countif(Cache == 'None' or Cache == '')\n| extend Lookups = Hits + Misses\n| project ['Cache hits'] = Hits, ['Cache misses'] = Misses, ['Cache lookups'] = Lookups, ['Hit ratio %'] = iff(Lookups == 0, 0.0, round(100.0 * Hits / Lookups, 1)), ['Not cached (throttled/blocked)'] = NotCached"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "7 \u00b7 Load balancer & backends",
+      "id": 60,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 57
+      }
+    },
+    {
+      "type": "table",
+      "title": "Backend selection & health (by host) \u2014 all model traffic in range",
+      "id": 61,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "AvgMs"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "AppDependencies\n| where $__timeFilter(TimeGenerated)\n| where Target contains 'openai'\n| summarize Calls = count(), Failures = countif(Success == false), AvgMs = round(avg(DurationMs),0) by Target\n| order by Calls desc"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "8 \u00b7 Content safety",
+      "id": 70,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 65
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "Allowed vs blocked (content safety + quota)",
+      "id": 71,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 66
+      },
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Count$/"
+        },
+        "pieType": "pie",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "values": [
+            "value"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppRequests\n| where $__timeFilter(TimeGenerated)\n| extend TestRunId = tostring(Properties['Request-x-test-run-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| where OperationName has 'chat'\n| extend Outcome = case(ResultCode == '403', 'Blocked', ResultCode == '200', 'Allowed', 'Other')\n| summarize Count = count() by Outcome\n| project Outcome, Count"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "9 \u00b7 Backend operations brokered by the gateway",
+      "id": 80,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 74
+      }
+    },
+    {
+      "type": "table",
+      "title": "Backend operations (models, embeddings, content safety)",
+      "id": 81,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 75
+      },
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*Ms$"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "AppDependencies\n| where $__timeFilter(TimeGenerated)\n| where Target contains 'openai' or Target contains 'cognitiveservices'\n| summarize Calls = count(), Failures = countif(Success == false), AvgMs = round(avg(DurationMs), 0), P95Ms = round(percentile(DurationMs, 95), 0) by Operation = Name, Backend = Target\n| order by Calls desc\n| take 100"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "10 \u00b7 Live trace explorer",
+      "id": 90,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 83
+      }
+    },
+    {
+      "type": "table",
+      "title": "Recent gateway requests (last 100)",
+      "id": 91,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 84
+      },
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "durationMs"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppRequests\n| where $__timeFilter(TimeGenerated)\n| extend TestRunId = tostring(Properties['Request-x-test-run-id']), Product = tostring(Properties['Product Name']), UserId = tostring(Properties['Request-x-user-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| project TimeGenerated, OperationName, ResultCode, durationMs = round(DurationMs,0), Product, UserId, TestRunId, OperationId\n| order by TimeGenerated desc\n| take 100"
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "11 \u00b7 Cost-saving recommendations",
+      "id": 100,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 93
+      }
+    },
+    {
+      "type": "table",
+      "title": "Usage hotspots & recommendations",
+      "id": 101,
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "azure-monitor-oob"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 94
+      },
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "azure-monitor-oob"
+          },
+          "queryType": "Azure Log Analytics",
+          "azureLogAnalytics": {
+            "resources": [
+              "__WORKSPACE_ID__"
+            ],
+            "resultFormat": "table",
+            "dashboardTime": false,
+            "query": "let runFilter = '$TestRunId';\nAppMetrics\n| where $__timeFilter(TimeGenerated)\n| where Name == 'Total Tokens'\n| extend Sub = tostring(Properties['Subscription ID']), Product = tostring(Properties['Product']), TestRunId = tostring(Properties['Test Run ID'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize Tokens = sum(Sum) by Product, Sub\n| extend Recommendation = case(Tokens > 50000, 'High usage \u2014 consider PTU / reserved capacity', Tokens > 10000, 'Monitor \u2014 approaching quota', 'Healthy')\n| order by Tokens desc"
+          }
+        }
+      ]
+    }
+  ]
+}

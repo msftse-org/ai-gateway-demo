@@ -1,0 +1,51 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+tfplan
+*.tfplan
+
+# Bootstrap / generated
+.bootstrap/
+infrastructure/.bootstrap/
+
+# Python
+.venv/
+venv/
+.inspect-venv/
+__pycache__/
+*.pyc
+clients/.env
+.env
+
+# Terraform apply logs
+infrastructure/apply*.log
+infrastructure/*.log
+
+# Node / deck build
+node_modules/
+deck/*.pdf
+deck/*.jpg
+
+# Deck (presentation build assets — not part of the deployable project)
+deck/
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Office temp lock files
+~$*
+
+# Local validation reports and temporary deployment files
+.validation/

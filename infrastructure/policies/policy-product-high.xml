@@ -1,0 +1,20 @@
+<!--
+  Product policy for dev-team-b (HIGH tier).
+  Rendered by Terraform via templatefile().
+  Enforces a higher per-minute token rate limit and no daily quota, to contrast with dev-team-a.
+-->
+<policies>
+    <inbound>
+        <base />
+        <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="${tokens_per_minute}" estimate-prompt-tokens="false" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

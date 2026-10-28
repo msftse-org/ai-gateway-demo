@@ -1,0 +1,39 @@
+# Copy to terraform.tfvars and edit. Do NOT commit terraform.tfvars (it is gitignored).
+
+# Required: a valid email for the API Management publisher.
+apim_publisher_email = "you@example.com"
+
+# Optional overrides (defaults shown).
+# subscription_id        = ""              # leave empty to use az CLI default / ARM_SUBSCRIPTION_ID
+# location               = "swedencentral"
+# apim_location          = "norwayeast" # optional gateway-only override
+# name_prefix            = "aigw"
+# environment            = "demo"
+# owner                  = "your-alias"
+# apim_publisher_name    = "AI Gateway Demo"
+# apim_sku_name          = "PremiumV2_1"    # validated demo tier
+
+# Model + capacity
+# chat_model_name        = "gpt-6.1-terra"
+# chat_model_version     = "2026-10-26"
+# embedding_model_name   = "text-embedding-3-small"
+# embedding_model_version = "1"
+# chat_primary_tpm       = 30
+# chat_secondary_tpm     = 20
+# embedding_tpm          = 30
+
+# Gateway policy tuning
+# team_a_tokens_per_minute = 500
+# team_a_token_quota       = 10000
+# team_b_tokens_per_minute = 5000
+# content_safety_block_threshold = 4
+# semantic_cache_score_threshold = 0.05
+
+# Bootstrap the demo agent after apply (requires Python deps in clients/requirements.txt)
+# run_bootstrap_agent = true
+
+# Extra tags (No security-control exemption tags are added automatically)
+# tags = { CostCenter = "demo" }
+
+# Demo fixture setting; evaluate independently for real workloads.
+content_safety_block_threshold = 2

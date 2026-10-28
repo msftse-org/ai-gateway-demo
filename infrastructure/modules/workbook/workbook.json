@@ -1,0 +1,408 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# AI Gateway Dashboard — Azure API Management + Microsoft Foundry\n\nEnd-to-end view of every AI call traversing the gateway: **token consumption**, **cost**, **latency**, **errors & throttling**, **semantic cache**, **load balancing**, **content safety**, **agent/tool & MCP calls**, and a **live trace explorer**.\n\n> Tip: paste the **Test Run ID** printed by `clients/run_all.py` into the parameter below to isolate a single live demo run."
+      },
+      "name": "title"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "p-timerange",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "label": "Time range",
+            "type": 4,
+            "isRequired": true,
+            "value": { "durationMs": 3600000 },
+            "typeSettings": {
+              "selectableValues": [
+                { "durationMs": 900000 },
+                { "durationMs": 3600000 },
+                { "durationMs": 14400000 },
+                { "durationMs": 86400000 },
+                { "durationMs": 604800000 }
+              ]
+            }
+          },
+          {
+            "id": "p-testrun",
+            "version": "KqlParameterItem/1.0",
+            "name": "TestRunId",
+            "label": "Test Run ID",
+            "type": 1,
+            "isRequired": false,
+            "value": ""
+          },
+          {
+            "id": "p-product",
+            "version": "KqlParameterItem/1.0",
+            "name": "Product",
+            "label": "Product",
+            "type": 2,
+            "isRequired": false,
+            "multiSelect": false,
+            "typeSettings": { "additionalResourceOptions": ["value::all"] },
+            "query": "customMetrics\n| where name == 'Total Tokens'\n| extend Product = tostring(customDimensions['Product'])\n| where isnotempty(Product)\n| distinct Product",
+            "queryType": 0,
+            "resourceType": "microsoft.insights/components",
+            "value": "value::all"
+          },
+          {
+            "id": "p-user",
+            "version": "KqlParameterItem/1.0",
+            "name": "UserId",
+            "label": "User ID",
+            "type": 1,
+            "isRequired": false,
+            "value": ""
+          },
+          {
+            "id": "p-price-in",
+            "version": "KqlParameterItem/1.0",
+            "name": "PriceInputPer1k",
+            "label": "Set price / 1K input tokens (USD)",
+            "type": 1,
+            "isRequired": true,
+            "value": "unset"
+          },
+          {
+            "id": "p-price-out",
+            "version": "KqlParameterItem/1.0",
+            "name": "PriceOutputPer1k",
+            "label": "Set price / 1K output tokens (USD)",
+            "type": 1,
+            "isRequired": true,
+            "value": "unset"
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 1 · Executive summary" },
+      "name": "h-exec"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\ncustomMetrics\n| where name in ('Total Tokens','Prompt Tokens','Completion Tokens')\n| extend Product = tostring(customDimensions['Product']), TestRunId = tostring(customDimensions['Test Run ID']), UserId = tostring(customDimensions['User ID'])\n| where (runFilter == '' or TestRunId == runFilter)\n| where ('{Product}' == '*' or Product == '{Product}')\n| where ('{UserId}' == '' or UserId == '{UserId}')\n| summarize Tokens = sum(valueSum) by name\n| project Metric = name, Tokens",
+        "size": 4,
+        "title": "Token totals",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": { "columnMatch": "Metric", "formatter": 1 },
+          "leftContent": { "columnMatch": "Tokens", "formatter": 12, "formatOptions": { "palette": "blue" } },
+          "showBorder": true
+        }
+      },
+      "name": "exec-tokens"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\nlet reqs = requests\n| extend TestRunId = tostring(customDimensions['Request-x-test-run-id'])\n| where (runFilter == '' or TestRunId == runFilter);\nreqs\n| summarize Total = count(), Errors = countif(success == false), Throttled = countif(resultCode == 429), Blocked = countif(resultCode == 403), P95Latency = percentile(duration, 95)\n| extend ErrPct = iff(Total == 0, 0.0, round(100.0 * Errors / Total, 1))\n| project ['Total requests'] = todouble(Total), ['Error %'] = ErrPct, ['Throttled (429)'] = todouble(Throttled), ['Blocked (403)'] = todouble(Blocked), ['P95 latency (ms)'] = round(P95Latency, 0)\n| evaluate narrow()",
+        "size": 4,
+        "title": "Request health",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": { "columnMatch": "Column", "formatter": 1 },
+          "leftContent": { "columnMatch": "Value", "formatter": 1 },
+          "showBorder": true
+        }
+      },
+      "name": "exec-health"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\nlet priceIn = todouble('{PriceInputPer1k}');\nlet priceOut = todouble('{PriceOutputPer1k}');\nlet prompt = toscalar(customMetrics | where name == 'Prompt Tokens' | extend t = tostring(customDimensions['Test Run ID']) | where (runFilter == '' or t == runFilter) | summarize sum(valueSum));\nlet completion = toscalar(customMetrics | where name == 'Completion Tokens' | extend t = tostring(customDimensions['Test Run ID']) | where (runFilter == '' or t == runFilter) | summarize sum(valueSum));\nprint Metric = 'Estimated cost (USD)', Value = round((coalesce(prompt,0.0)/1000.0)*priceIn + (coalesce(completion,0.0)/1000.0)*priceOut, 4)",
+        "size": 4,
+        "title": "Estimated cost",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": { "columnMatch": "Metric", "formatter": 1 },
+          "leftContent": { "columnMatch": "Value", "formatter": 12, "formatOptions": { "palette": "green" } },
+          "showBorder": true
+        }
+      },
+      "name": "exec-cost"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 2 · Token consumption" },
+      "name": "h-tokens"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\ncustomMetrics\n| where name == 'Total Tokens'\n| extend Product = tostring(customDimensions['Product']), TestRunId = tostring(customDimensions['Test Run ID']), UserId = tostring(customDimensions['User ID'])\n| where (runFilter == '' or TestRunId == runFilter)\n| where ('{Product}' == '*' or Product == '{Product}')\n| where ('{UserId}' == '' or UserId == '{UserId}')\n| summarize Tokens = sum(valueSum) by bin(timestamp, 1m), Product\n| render areachart",
+        "size": 0,
+        "title": "Total tokens over time, by product",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "areachart"
+      },
+      "name": "tokens-time"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\ncustomMetrics\n| where name in ('Prompt Tokens','Completion Tokens','Prompt Cached Tokens','Completion Reasoning Tokens')\n| extend TestRunId = tostring(customDimensions['Test Run ID'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize Tokens = sum(valueSum) by name\n| render piechart",
+        "size": 0,
+        "title": "Token mix (prompt / completion / cached / reasoning)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "piechart"
+      },
+      "name": "tokens-mix"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\ncustomMetrics\n| where name == 'Total Tokens'\n| extend Sub = tostring(customDimensions['Subscription ID']), Product = tostring(customDimensions['Product'])\n| extend TestRunId = tostring(customDimensions['Test Run ID'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize Tokens = sum(valueSum) by Product, Sub\n| order by Tokens desc",
+        "size": 0,
+        "title": "Tokens by product and subscription",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "tokens-bysub"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 3 · Cost view\nCost = (prompt tokens / 1000 × price-in) + (completion tokens / 1000 × price-out). Adjust the price parameters at the top." },
+      "name": "h-cost"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\nlet priceIn = todouble('{PriceInputPer1k}');\nlet priceOut = todouble('{PriceOutputPer1k}');\nlet prompt = customMetrics | where name == 'Prompt Tokens' | extend Product = tostring(customDimensions['Product']), t = tostring(customDimensions['Test Run ID']) | where (runFilter == '' or t == runFilter) | summarize p = sum(valueSum) by Product;\nlet completion = customMetrics | where name == 'Completion Tokens' | extend Product = tostring(customDimensions['Product']), t = tostring(customDimensions['Test Run ID']) | where (runFilter == '' or t == runFilter) | summarize c = sum(valueSum) by Product;\nprompt\n| join kind=fullouter completion on Product\n| extend Product = coalesce(Product, Product1)\n| extend CostUSD = round((coalesce(p,0.0)/1000.0)*priceIn + (coalesce(c,0.0)/1000.0)*priceOut, 4)\n| project Product, ['Prompt tokens'] = p, ['Completion tokens'] = c, CostUSD\n| order by CostUSD desc",
+        "size": 0,
+        "title": "Estimated cost by product (chargeback)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            { "columnMatch": "CostUSD", "formatter": 8, "formatOptions": { "palette": "green" } }
+          ]
+        }
+      },
+      "name": "cost-byproduct"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 4 · Throughput & latency" },
+      "name": "h-latency"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\nrequests\n| extend TestRunId = tostring(customDimensions['Request-x-test-run-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize P50 = percentile(duration, 50), P95 = percentile(duration, 95), P99 = percentile(duration, 99) by bin(timestamp, 1m), operation_Name\n| render timechart",
+        "size": 0,
+        "title": "Latency percentiles by operation (ms)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "timechart"
+      },
+      "name": "latency-pct"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\nrequests\n| extend TestRunId = tostring(customDimensions['Request-x-test-run-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize Requests = count() by bin(timestamp, 1m), resultCode\n| render columnchart",
+        "size": 0,
+        "title": "Request throughput by result code",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "columnchart"
+      },
+      "name": "throughput"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 5 · Errors & throttling\n429 = token rate limit exceeded · 403 = daily quota exceeded or content blocked." },
+      "name": "h-errors"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\nrequests\n| extend TestRunId = tostring(customDimensions['Request-x-test-run-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| where resultCode in ('429','403') or toint(resultCode) >= 500\n| summarize Count = count() by resultCode, operation_Name\n| order by Count desc",
+        "size": 0,
+        "title": "Throttling, quota and server errors",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "errors-table"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 6 · Semantic cache" },
+      "name": "h-cache"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\nrequests\n| extend RunId = tostring(customDimensions['Request-x-test-run-id']), Cache = tostring(customDimensions['Cache'])\n| where (runFilter == '' or RunId == runFilter)\n| where operation_Name has 'chat'\n| where Cache in ('Hit','Miss')\n| extend Outcome = iff(Cache == 'Hit', 'Served from cache', 'Forwarded to model')\n| summarize Count = count() by Outcome\n| render piechart",
+        "size": 0,
+        "title": "Cache hit ratio (per-request Cache outcome)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "piechart"
+      },
+      "name": "cache-ratio"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\nrequests\n| extend RunId = tostring(customDimensions['Request-x-test-run-id']), Cache = tostring(customDimensions['Cache'])\n| where (runFilter == '' or RunId == runFilter)\n| where operation_Name has 'chat'\n| summarize Hits = countif(Cache == 'Hit'), Misses = countif(Cache == 'Miss'), NotCached = countif(Cache == 'None' or Cache == '')\n| extend Lookups = Hits + Misses\n| project ['Cache hits'] = Hits, ['Cache misses'] = Misses, ['Cache lookups'] = Lookups, ['Hit ratio %'] = iff(Lookups == 0, 0.0, round(100.0 * Hits / Lookups, 1)), ['Not cached (throttled/blocked)'] = NotCached",
+        "size": 0,
+        "title": "Cache effectiveness (hit / miss / ratio)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "cache-traces"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 7 · Load balancer & backends" },
+      "name": "h-lb"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "dependencies\n| where target contains 'openai'\n| summarize Calls = count(), Failures = countif(success == false), AvgMs = round(avg(duration),0) by target\n| order by Calls desc",
+        "size": 0,
+        "title": "Backend selection & health (by host) — all model traffic in range",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "lb-backends"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 8 · Content safety" },
+      "name": "h-safety"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\nrequests\n| extend TestRunId = tostring(customDimensions['Request-x-test-run-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| where operation_Name has 'chat'\n| extend Outcome = case(resultCode == '403', 'Blocked', resultCode == '200', 'Allowed', 'Other')\n| summarize Count = count() by Outcome\n| render piechart",
+        "size": 0,
+        "title": "Allowed vs blocked (content safety + quota)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "piechart"
+      },
+      "name": "safety-ratio"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 9 · Backend operations brokered by the gateway\nEvery model, embeddings and content-safety call the gateway forwards to a backend. Agent tool / MCP calls also appear here **when agent traffic is routed through the gateway** (the agent itself runs in Foundry, so by default its tool calls are recorded in Foundry, not here)." },
+      "name": "h-mcp"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\ndependencies\n| where target contains 'openai' or target contains 'cognitiveservices'\n| summarize Calls = count(), Failures = countif(success == false), AvgMs = round(avg(duration), 0), P95Ms = round(percentile(duration, 95), 0) by Operation = name, Backend = target\n| order by Calls desc\n| take 100",
+        "size": 0,
+        "title": "Backend operations (models, embeddings, content safety)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "mcp-calls"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 10 · Live trace explorer\nLast 100 calls through the gateway. Click a row, then **End-to-end transaction details** to trace it across APIM → Foundry." },
+      "name": "h-trace"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\nrequests\n| extend TestRunId = tostring(customDimensions['Request-x-test-run-id']), Product = tostring(customDimensions['Product Name']), UserId = tostring(customDimensions['Request-x-user-id'])\n| where (runFilter == '' or TestRunId == runFilter)\n| project timestamp, operation_Name, resultCode, durationMs = round(duration,0), Product, UserId, TestRunId, operation_Id\n| order by timestamp desc\n| take 100",
+        "size": 0,
+        "title": "Recent gateway requests",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "trace-table"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## 11 · Cost-saving recommendations" },
+      "name": "h-reco"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let runFilter = '{TestRunId}';\ncustomMetrics\n| where name == 'Total Tokens'\n| extend Sub = tostring(customDimensions['Subscription ID']), Product = tostring(customDimensions['Product']), TestRunId = tostring(customDimensions['Test Run ID'])\n| where (runFilter == '' or TestRunId == runFilter)\n| summarize Tokens = sum(valueSum) by Product, Sub\n| extend Recommendation = case(Tokens > 50000, 'High usage — consider PTU / reserved capacity', Tokens > 10000, 'Monitor — approaching quota', 'Healthy')\n| order by Tokens desc",
+        "size": 0,
+        "title": "Usage hotspots & recommendations",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "reco-table"
+    }
+  ],
+  "isLocked": false,
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

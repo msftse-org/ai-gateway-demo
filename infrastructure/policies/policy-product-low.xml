@@ -1,0 +1,21 @@
+<!--
+  Product policy for dev-team-a (LOW tier).
+  Rendered by Terraform via templatefile().
+  Enforces a small per-minute token rate limit AND a daily token quota, keyed by the
+  caller's APIM subscription, so the rate-limit demo triggers 429 (TPM) then 403 (quota) quickly.
+-->
+<policies>
+    <inbound>
+        <base />
+        <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="${tokens_per_minute}" token-quota="${token_quota}" token-quota-period="Daily" estimate-prompt-tokens="false" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

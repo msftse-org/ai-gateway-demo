@@ -1,111 +1,105 @@
-# Azure AI Gateway — architecture walkthrough
+# Azure AI Gateway Demo
 
-**A shared gateway for model governance, with visible evidence for every demo scenario.**
+A reusable, customer-neutral lab for demonstrating Azure API Management in front of Microsoft Foundry models: team token limits, prompt screening, semantic caching, backend balancing and observable test outcomes.
 
-Customer-neutral documentation for architects and engineers. This public repository contains newly authored diagrams and an architecture guide only. Deployment code, credentials, environment settings, and Terraform state are not included.
+This is a demonstration and pilot starting point. It includes Terraform infrastructure, six executable scenarios, an Azure Monitor workbook, a Managed Grafana dashboard and a presenter runbook.
 
-[Download the standalone guide](docs/architecture-guide.html) · [Resource diagram](docs/diagrams/ai-gateway-architecture.png) · [Agent flow](docs/diagrams/agent-model-and-tool-flow.png)
+## Architecture and scope
 
-## Deployed architecture
+![Azure AI Gateway architecture with model policies, two Foundry backends, safety, caching and monitoring.](docs/diagrams/ai-gateway-architecture.png)
 
-![Azure AI Gateway resource architecture: APIM applies model policies, uses safety and cache services, routes to two Foundry accounts, and emits monitoring data.](docs/diagrams/ai-gateway-architecture.png)
+[Customer architecture guide](docs/architecture-guide.html) · [Public team repository](https://github.com/msftse-org/ai-gateway-demo)
 
-The model gateway applies team token limits, screens prompts, checks a semantic response cache, and sends cache misses to two Foundry backends. Both accounts host **GPT-6.1 Terra, version 2026-10-26**, verified in the demo on **28 October 2026**. Check model availability and quota for each new environment.
+The standalone guide explains the deployed resources, policy behavior, identity boundaries, APIM portal request, and customer walkthrough. Download the HTML file and open it locally; its diagrams are embedded for offline use. The public team repository includes the full reusable lab: Terraform, APIM policies, test clients, deployment scripts, dashboards, presenter runbook, and architecture diagrams.
 
-The picture shows logical request and data relationships; replies return along the request path. Equal pool weights do not guarantee a 50/50 result in a small batch. Workbook and Grafana independently query monitoring data and are outside the model request path.
-
-## Resource inventory
-
-One resource group contains the following resources and child configuration. Labels are generic so this material can be reused with other customers.
-
-| Component | Deployed configuration | Purpose |
-|---|---|---|
-| API Management | Premium v2; `/openai` and `/ms-learn-mcp` APIs | Products, subscription keys, policies, backend pool and correlation |
-| Foundry account 1 | GPT-6.1 Terra; Global Standard; 30,000 TPM capacity | Primary chat backend and host for the project |
-| Foundry account 2 | Same model/version; Global Standard; 20,000 TPM capacity | Second chat backend for balancing |
-| Embedding deployment | `text-embedding-3-small`, version 1, in account 1 | Embeds prompts for cache lookup; not the chat model |
-| Foundry project | Project within account 1 | Holds the prompt agent definition and tool configuration |
-| Foundry prompt agent | `agent-aigw-demo`; GPT-6.1 Terra; Microsoft Learn MCP | An assistant grounded in external documentation |
-| Azure AI Content Safety | S0; gateway managed identity | Screens prompts before cache lookup and inference |
-| Azure Managed Redis | Balanced B1; RediSearch; TLS | Vector-backed response cache; 120-second TTL |
-| Application Insights | Workspace-backed | Request/dependency diagnostics and token metrics |
-| Log Analytics | Shared workspace; 30-day retention | Stores monitoring data for investigation and queries |
-| Azure Monitor Workbook | Demo workbook | Guided inspection by run, status, tokens and backend |
-| Azure Managed Grafana | Standard; 28-panel dashboard | A second presentation surface over monitoring data |
-
-The reference deployment places APIM in **Norway East** and other regional resources in **Sweden Central**. Regions are configurable. Both model accounts share a region; this is not a multi-region disaster-recovery demonstration. Global Standard account placement alone does not establish inference-processing residency.
-
-Microsoft Learn MCP is an **external service**, not a deployed resource. No custom web chat UI, VM, AKS cluster, VNet, private endpoint, Key Vault, or custom MCP server is part of this lab.
-
-## Model request flow
-
-1. **Identify the caller.** The client sends an HTTPS Chat Completions request with an APIM product subscription key in `api-key`.
-2. **Apply team limits.** Product policies count tokens per subscription. Team A demonstrates restrictive limits; Team B supports the other scenarios.
-3. **Screen the prompt.** APIM calls Content Safety using managed identity. A blocked prompt returns 403 before model inference.
-4. **Check the cache.** APIM calls the embedding deployment and checks Redis. Partitions include the subscription and deployment name. A match replays a stored response.
-5. **Route a miss.** The backend pool selects a model account. APIM authenticates to Foundry using managed identity; retries and circuit breakers address selected failures.
-6. **Return and observe.** Model output and correlation headers reach the client. Responses may be cached; diagnostics and token metrics support investigation.
-
-A cache hit avoids a new **chat inference**, not every downstream call: the embedding lookup still runs. Semantic matching requires evaluation for answer quality and isolation.
-
-## Agent and tool flow
-
-![The Foundry agent calls its model directly; only its Microsoft Learn tool traffic passes through APIM’s separate MCP API.](docs/diagrams/agent-model-and-tool-flow.png)
-
-The client invokes the prompt agent through the Foundry project's Responses API. The agent calls its model **directly in Foundry**, while its documentation tool requests pass through APIM's **separate `/ms-learn-mcp` API** to Microsoft Learn.
-
-The project and agent belong to account 1. The model deployment is an account-level resource available to that project; the diagram groups them by runtime ownership, not model-resource ownership.
-
-The `/openai` token, safety and cache policies **do not apply to the agent's direct model calls**. The MCP proxy is anonymous and tool approval is disabled for the demo. These are explicit demo settings, not a recommended production access model.
-
-## Policies you can explain
-
-| Capability | Mechanism | Observable behavior |
-|---|---|---|
-| Team token limits | `llm-token-limit` at product scope | Team A: 500 TPM and 10,000 tokens/day. Team B: 5,000 TPM without a configured daily quota |
-| Prompt protection | `llm-content-safety` with prompt shield | Benign prompts succeed; a disallowed fixture returns 403. Demo category threshold: 2 on the eight-level scale |
-| Semantic cache | `llm-semantic-cache-lookup` / `llm-semantic-cache-store` | Equivalent prompts can replay one response ID; similarity threshold 0.2, TTL 120 seconds |
-| Model authentication | `authentication-managed-identity` | The client needs no Foundry model API key |
-| Balancing | Two equal-priority, equal-weight pool members | `x-backend-host` identifies the backend on a cache miss |
-| Resilience | Retry on backend 429/5xx; circuit breakers | Configured behavior; the test suite does not prove forced failover |
-| Token visibility | `llm-emit-token-metric` | Prompt/completion/total-token metrics with caller/run dimensions |
-| Correlation | `x-test-run-id`, `x-correlation-id`, `x-backend-host` | Connect a request to its monitoring evidence |
-
-References: [token limits](https://learn.microsoft.com/en-us/azure/api-management/llm-token-limit-policy), [content safety](https://learn.microsoft.com/en-us/azure/api-management/llm-content-safety-policy), [semantic cache](https://learn.microsoft.com/en-us/azure/api-management/llm-semantic-cache-lookup-policy), and [backend pools](https://learn.microsoft.com/en-us/azure/api-management/backends). Values above describe this demo, not universal Azure defaults.
-
-## Identity and trust boundaries
-
-| Boundary | Current mechanism | Customer discussion |
-|---|---|---|
-| Client → model gateway | Product subscription key over HTTPS | A key identifies a subscription, not necessarily one end user |
-| APIM → Foundry | System-assigned managed identity; Cognitive Services OpenAI User | Model accounts have local key authentication disabled |
-| APIM → Content Safety | Managed identity; Cognitive Services User | Moderation is invoked by policy |
-| APIM → Redis | TLS and Redis access key | Redis authentication differs from model authentication |
-| Human → agent/portal | Microsoft Entra identity and Azure/project permissions | Access to the demo is separate from access to these public documents |
-| Agent → Learn MCP | Anonymous gateway proxy; no tool approval prompt | Production tool authorization remains a design decision |
-| Grafana → monitoring | Managed identity; Monitoring Reader | Read access scoped to the demo resource group |
-
-Endpoints are public. A resource-group outline is an administrative grouping, not a private network. This demo screens prompts; it does not explicitly configure completion screening.
-
-## Try a chat request in APIM
-
-In an authorized environment, open **API Management → APIs → Foundry LLM API → Chat Completions → Test**.
-
-| Field | Value |
+| Component | Role |
 |---|---|
-| Method | `POST` |
-| `deployment-id` | `gpt-6.1-terra` |
-| Query parameter `api-version` | `2024-10-21` |
-| Header `Content-Type` | `application/json` |
-| Header `api-key` | Your APIM product subscription key |
-| Header `x-test-run-id` | A unique label, such as `customer-walkthrough-01` |
+| API Management | `/openai` model API, two team products/subscriptions, policies, backend pool and separate `/ms-learn-mcp` proxy |
+| Two Foundry accounts | `gpt-6.1-terra` chat deployments; account 1 also hosts `text-embedding-3-small` and the project |
+| Foundry project and prompt agent | Managed model/instructions/tool definition; Microsoft Learn MCP integration |
+| Azure Managed Redis | Semantic response cache, partitioned by APIM subscription and deployment |
+| Content Safety | Inbound prompt screening using APIM managed identity |
+| Application Insights + Log Analytics | Request diagnostics, token metrics and gateway logs |
+| Azure Monitor workbook + Managed Grafana | Two dashboard experiences over monitoring data |
 
-Paste **only this JSON object** into Request body:
+Model test clients call APIM, which applies the model policies and forwards cache misses to Foundry. The prompt agent calls its model **directly in Foundry**. Its Microsoft Learn tool uses the separate APIM MCP API. That proxy is anonymous by default and does not inherit the model API's token, safety or cache policies. No custom agent container or MCP server is deployed.
+
+![The Foundry agent calls its model directly; Microsoft Learn tool requests use the separate APIM MCP route.](docs/diagrams/agent-model-and-tool-flow.png)
+
+## Quick start
+
+Prerequisites: Azure CLI signed into the intended tenant/subscription, Terraform >= 1.6, Python 3.10+, permission to create resources and assign roles, and regional quota/capacity for the selected services. Premium v2 is the validated APIM tier for this lab; do not assume all tiers have identical feature support.
+
+```bash
+git clone https://github.com/msftse-org/ai-gateway-demo.git
+cd ai-gateway-demo
+az login
+az account set --subscription '<your-subscription-id>'
+cp infrastructure/terraform.tfvars.example infrastructure/terraform.tfvars
+# Edit publisher email, owner, name_prefix, environment and regions.
+./scripts/lab.sh setup
+./scripts/lab.sh plan
+./scripts/lab.sh deploy
+./scripts/lab.sh test
+```
+
+`lab.sh` resolves the checkout directory, uses its own `.venv`, exports the active subscription/tenant to Terraform, verifies bootstrap status and generates `clients/.env` with owner-only permissions. Review the plan before confirming apply. All generated credentials, local settings, state and bootstrap output stay outside version control. Provider versions are captured in the committed lockfile.
+
+Use a unique `name_prefix` and environment per customer or deployment. Use separate checkouts/state for independent environments. Never copy a deployed state file into a new customer checkout.
+
+```bash
+./scripts/lab.sh test 01 03 05  # chat, cache, prompt screening
+./scripts/lab.sh export         # regenerate local client configuration
+./scripts/lab.sh destroy        # review and confirm removal of this checkout's lab
+```
+
+## Configuration
+
+| Input | Default / demo setting | Notes |
+|---|---|---|
+| `name_prefix` | `aigw` | 2–9 lowercase alphanumeric characters, starting with a letter |
+| `environment` | `demo` | Resource group becomes `rg-<prefix>-<environment>` |
+| `location` | `swedencentral` | Models and supporting services; verify availability |
+| `apim_location` | same as main region | Optional gateway-only region override |
+| `apim_publisher_email` | required | Set your own address in the ignored tfvars file |
+| `chat_model_name` / `chat_model_version` | `gpt-6.1-terra` / `2026-10-26` | Verified GA in Sweden Central on 2026-10-28; check live availability and quota before deploying |
+| `apim_sku_name` | `PremiumV2_1` | Validated demo tier; incurs ongoing cost |
+| Team A | 500 TPM; 10,000 tokens/day | Product-scoped token control |
+| Team B | 5,000 TPM | No configured daily quota |
+| Safety threshold | module default 4; example uses 2 | Example setting supports the demo fixture; evaluate for real workloads |
+| Semantic threshold | 0.2 | Lower means closer required match; not an accuracy guarantee |
+| Cache TTL | 120 seconds in policy | Shared within each APIM subscription and deployment partition |
+
+Cognitive Services local authentication is disabled and APIM uses managed identity for Foundry and Content Safety. Clients still use APIM subscription keys; Redis uses an access key. No security-control exemption tags are added. Public endpoints and local Terraform state are intentional demo choices.
+
+## Test scenarios
+
+Validated on 2026-10-28 with GPT-6.1 Terra (`2026-10-26`): all six scenarios passed, including actual MCP execution, and the portal request returned the new model. Re-run the checks before a customer session.
+
+| Test | Assertion / scope |
+|---|---|
+| 01 basic chat | Successful model response and correlation |
+| 02 load | Observable token throttling; daily quota exhaustion is not guaranteed |
+| 03 cache | Three successful paraphrases with complete, identical response IDs |
+| 04 balancing | All requests succeed and at least two backend hosts serve them |
+| 05 safety | Benign request allowed; harmful fixture blocked |
+| 06 agent | Answer plus actual MCP tool execution |
+
+The runner prints a shared Test Run ID for the workbook. Wait for ingestion and select the appropriate time range. Repeated runs can hit existing rate/quota counters or a warm cache. The cache test primes the cache before measurement; it is not a cold/warm performance benchmark. Balancing does not prove forced failover.
+
+## Chat Completions in the Azure portal
+
+Open your API Management resource → **APIs → Foundry LLM API → Chat Completions → Test**.
+Set `deployment-id` to `gpt-6.1-terra`, add query parameter `api-version=2024-10-21`,
+and headers `Content-Type: application/json` and `api-key: <Dev Team B subscription key>`.
+Find the key under **Subscriptions → dev-team-b-subscription → Show/hide keys**.
+Add `x-test-run-id` with a unique label to find the call in monitoring.
 
 ```json
 {
   "messages": [
-    {"role": "user", "content": "Explain what Azure API Management does in two sentences."}
+    {"role": "system", "content": "You are a helpful Azure assistant. Answer clearly and briefly."},
+    {"role": "user", "content": "Explain in two sentences how an API gateway helps manage AI applications."}
   ],
   "max_completion_tokens": 150,
   "reasoning_effort": "none",
@@ -113,59 +107,39 @@ Paste **only this JSON object** into Request body:
 }
 ```
 
-URL: `https://<your-gateway>.azure-api.net/openai/deployments/gpt-6.1-terra/chat/completions?api-version=2024-10-21`.
+Expect HTTP 200, text in `choices[0].message.content`, the current model in `model`,
+and `x-correlation-id` / `x-backend-host` response headers. The URL selects the
+model deployment; a body `model` field is unnecessary. The demo disables reasoning
+for short, predictable calls and uses `max_completion_tokens` instead of legacy
+`max_tokens`. For reasoning workloads, select a supported effort and increase the
+completion budget to include reasoning tokens. The agent uses the Responses API
+for its MCP tool. See [Azure reasoning model compatibility](https://learn.microsoft.com/azure/foundry/openai/how-to/reasoning).
 
-The URL selects the deployment; no body `model` field is needed. These short calls disable reasoning so the budget can be used for visible text. Success means HTTP 200, nonempty `choices[0].message.content`, the expected `model`, and correlation headers. A missing `api-version` caused a backend 404 in the demo; a body not received as a JSON object caused a 400. Keep HTTP request lines and Markdown fences out of the body field.
-
-## Customer walkthrough and evidence
-
-| Step | Show | Explain |
-|---|---|---|
-| 1 · Orient | Resource architecture | Central model controls; two distinct backend accounts |
-| 2 · Send | Successful chat request | Model, answer, tokens and correlation ID |
-| 3 · Govern | Team A burst and prompt screening | Expected 429 throttling and selected 403 blocks |
-| 4 · Reuse | Three equivalent prompts | Matching response IDs demonstrate cache replay; latency alone does not |
-| 5 · Distribute | Both backend hosts | Balancing is observed; forced failover is a separate experiment |
-| 6 · Ground | Agent answer and MCP call evidence | Distinguish the model and tool paths |
-| 7 · Observe | Workbook/Grafana filtered by run | Allow ingestion time and isolate the relevant traffic |
-
-On **28 October 2026**, all six executable scenarios passed in the reference environment after the model upgrade. A separate customer-body request returned HTTP 200 and the expected model. This is dated validation, not a promise of ongoing availability or customer access. Daily-quota exhaustion and regional disaster recovery were not established by these tests.
-
-Cost rates default to **unset**. Enter applicable Azure input/output rates and filter to a run using one model before showing estimates. These are not invoices: embeddings, direct agent calls, cache behavior, and service charges require separate accounting.
-
-## From demo to a customer design
-
-1. **Define acceptance criteria:** users, prompts, model quality, latency, throughput, data handling and cost targets.
-2. **Choose boundaries:** identity, API/tool authorization, endpoint exposure, connectivity and processing residency.
-3. **Run a pilot:** evaluate safety and cache quality; measure quotas, token budgets and telemetry coverage.
-4. **Prove operations:** test failure handling, recovery, monitoring, key lifecycle and deployment review before production adoption.
-
-Open decisions: who may invoke which models/tools; whether cached answers can be shared; whether private connectivity is required; acceptable processing geography; whether the agent model path must also be governed; required RTO/RPO and cost controls. These are not presented as implemented features.
-
-## Glossary and references
-
-| Term | Meaning here |
-|---|---|
-| APIM | Azure API Management, the gateway and policy control point |
-| Foundry | Azure's model and agent platform used by this demo |
-| Deployment ID | Name selecting a model deployment in the request URL |
-| TPM | Tokens per minute; distinguish model capacity from policy limits |
-| Managed identity | Azure-managed workload identity used for service access tokens |
-| Semantic cache | Response reuse based on prompt-vector similarity |
-| TTL | Time to live; cache entries use 120 seconds here |
-| MCP | Model Context Protocol; used to call Microsoft Learn tools |
-| RBAC | Role-based access control |
-| RTO / RPO | Recovery time objective / recovery point objective |
-
-Diagrams use Azure-style product illustrations with explicit labels. Microsoft's [Azure icon collection and guidance](https://learn.microsoft.com/en-us/azure/architecture/icons/) is the reference for Azure iconography. These are explanatory illustrations, not an endorsement or portal screenshot.
-
-## Repository contents
+## Repository map
 
 ```text
-README.md                               Customer-facing walkthrough
-docs/architecture-guide.html           Standalone guide with embedded images
-docs/diagrams/ai-gateway-architecture.png
-docs/diagrams/agent-model-and-tool-flow.png
+infrastructure/          Terraform root, reusable modules and policy XML
+  modules/              apim, foundry, redis, content-safety,
+                        observability, workbook, grafana
+  policies/             Model API, team limits and MCP policy
+clients/                Shared client helpers and six scenarios
+scripts/                Portable lab entry point, agent bootstrap,
+                        MCP configuration and local settings export
+docs/runbook/           Presenter walkthrough and portal navigation
+docs/diagrams/          Resource architecture and agent-flow PNGs
+docs/architecture-guide.html  Standalone offline customer guide
+AGENT.md                Implementation notes and changelog
+NOTICE.md               Source provenance
 ```
 
-Download the HTML file and open it locally; GitHub shows its source rather than hosting it as a website. It needs no build step or separate image downloads. This repository does not include or grant access to the private deployment implementation.
+## Important boundaries
+
+- Both chat backends can share a region; this lab does not establish regional disaster recovery.
+- Prompt screening is configured; completion screening is not explicitly configured.
+- Cache isolation is per APIM subscription and deployment, not per user sharing that subscription.
+- The declared direct embeddings API operation is not independently validated. The dedicated embedding backend used by caching is a separate path; review direct-operation routing before exposing it to customers.
+- Agent bootstrap can report a failure without failing Terraform itself; `lab.sh deploy` verifies its status and scenario 06 proves runtime behavior.
+- Set the dashboard input/output prices to your Azure model rates; defaults are `unset` so changing models cannot silently reuse old prices. Cost panels remain empty until configured. Filter to one model/test run when estimating costs. Token-cost dashboards estimate model usage, not the full Azure bill. APIM, Redis, Grafana and telemetry can incur charges even during an idle demo.
+- Set customer-specific identity, networking, data residency, moderation, cache quality, reliability and operating acceptance criteria before production use.
+
+See [the presenter runbook](docs/runbook/README.md), [AI gateway capabilities](https://learn.microsoft.com/azure/api-management/genai-gateway-capabilities), and [source provenance](NOTICE.md).

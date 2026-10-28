@@ -1,0 +1,5 @@
+# Validated direct dependencies. Update deliberately and rerun all six scenarios.
+azure-ai-projects==2.9.0
+azure-identity==1.26.0
+openai==3.35.1
+requests==2.34.2
